@@ -3,7 +3,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { PropositionsScreen } from "./screens/PropositionsScreen";
 import { ManualPickerScreen } from "./screens/ManualPickerScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
-import { OnboardingScreen } from "./screens/OnboardingScreen";
+import { AuthFlowScreen } from "./screens/AuthFlowScreen";
+import { ConnectFamileoScreen } from "./screens/ConnectFamileoScreen";
 import { PostFlowScreen } from "./screens/PostFlowScreen";
 
 const Tabs = createBottomTabNavigator();
@@ -19,14 +20,25 @@ function MainTabs() {
   );
 }
 
-export function RootNavigator({ needsOnboarding }: { needsOnboarding: boolean }) {
+export type RootStage = "auth" | "connectFamileo" | "main";
+
+export function RootNavigator({ stage }: { stage: RootStage }) {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {needsOnboarding ? (
-        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-      ) : null}
-      <Stack.Screen name="Main" component={MainTabs} />
-      <Stack.Screen name="PostFlow" component={PostFlowScreen} options={{ presentation: "modal" }} />
+      {stage === "auth" ? (
+        <Stack.Screen name="Auth" component={AuthFlowScreen} />
+      ) : stage === "connectFamileo" ? (
+        <Stack.Screen name="ConnectFamileo" component={ConnectFamileoScreen} />
+      ) : (
+        <>
+          <Stack.Screen name="Main" component={MainTabs} />
+          <Stack.Screen
+            name="PostFlow"
+            component={PostFlowScreen}
+            options={{ presentation: "modal" }}
+          />
+        </>
+      )}
     </Stack.Navigator>
   );
 }

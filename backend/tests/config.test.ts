@@ -6,6 +6,7 @@ describe("loadConfig", () => {
     const cfg = loadConfig({
       PORT: "9000",
       BACKEND_BEARER_TOKEN: "tok-tok-tok-tok-tok",
+      JWT_SECRET: "x".repeat(32),
       SESSION_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),
       DATA_DIR: "/tmp/data",
       LOG_LEVEL: "debug",

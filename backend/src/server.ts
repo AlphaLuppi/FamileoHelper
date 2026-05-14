@@ -12,19 +12,27 @@ import { padsRoutes } from "./routes/pads.js";
 import { gazetteRoutes } from "./routes/gazette.js";
 import { postRoutes } from "./routes/post.js";
 import { adminRoutes } from "./routes/admin.js";
+import { authRoutes } from "./routes/auth.js";
+import { famileoSessionRoutes } from "./routes/famileoSession.js";
 import { bearerAuth } from "./auth/bearerAuth.js";
+import { jwtAuth } from "./auth/jwt.js";
 import { CaptionService } from "./llm/CaptionService.js";
 import { ClaudeAgentSdkClient, type ClaudeClient } from "./llm/claudeClient.js";
 import type { FamileoClient } from "./famileo/FamileoClient.js";
 import { MockFamileoClient } from "./famileo/MockFamileoClient.js";
 import { WebApiFamileoClient } from "./famileo/WebApiFamileoClient.js";
 import { SessionStore } from "./famileo/sessionStore.js";
-import { openDb } from "./db/sqlite.js";
+import { UsersRepo } from "./auth/usersRepo.js";
+import { InviteCodesRepo } from "./auth/inviteCodesRepo.js";
+import { openDb, type Db } from "./db/sqlite.js";
 
 export type Services = {
   caption: CaptionService;
   famileo: FamileoClient;
-  sessions: SessionStore | null;
+  sessions: SessionStore;
+  users: UsersRepo;
+  invites: InviteCodesRepo;
+  db: Db;
 };
 
 export function buildServices(cfg: Config): Services {
@@ -32,19 +40,21 @@ export function buildServices(cfg: Config): Services {
     ? new ClaudeAgentSdkClient({ oauthToken: cfg.claudeOauthToken })
     : { prompt: async () => "" };
 
-  if (cfg.useMockFamileo) {
-    return {
-      caption: new CaptionService(claude),
-      famileo: new MockFamileoClient(),
-      sessions: null,
-    };
-  }
   const db = openDb(cfg.dataDir);
   const sessions = new SessionStore(db, cfg.sessionEncryptionKey);
+  const users = new UsersRepo(db);
+  const invites = new InviteCodesRepo(db);
+  const famileo: FamileoClient = cfg.useMockFamileo
+    ? new MockFamileoClient()
+    : new WebApiFamileoClient(sessions);
+
   return {
     caption: new CaptionService(claude),
-    famileo: new WebApiFamileoClient(sessions),
+    famileo,
     sessions,
+    users,
+    invites,
+    db,
   };
 }
 
@@ -57,18 +67,34 @@ export function buildApp(cfg: Config, services?: Services) {
     app.use("*", serveStatic({ root: cfg.webPublicDir }));
   }
 
-  // Auth bearer appliquée uniquement aux préfixes API (pas au SPA).
-  const auth = bearerAuth(cfg.bearerToken);
-  for (const p of ["/caption", "/pads", "/post", "/gazette-deadline", "/admin/*"]) {
-    app.use(p, auth);
+  // Auth routes (public): /auth/register, /auth/login. /auth/me is JWT-protected inside.
+  app.route(
+    "/",
+    authRoutes({
+      users: svc.users,
+      invites: svc.invites,
+      sessions: svc.sessions,
+      jwtSecret: cfg.jwtSecret,
+    }),
+  );
+
+  // Famileo session paste/get/delete (JWT-protected internally).
+  app.route("/", famileoSessionRoutes(svc.sessions, cfg.jwtSecret));
+
+  // Bearer auth for admin (e.g. generating invite codes).
+  const bearer = bearerAuth(cfg.bearerToken);
+  app.use("/admin/*", bearer);
+  app.route("/", adminRoutes(svc.invites));
+
+  // JWT auth for SPA-facing API.
+  const jwt = jwtAuth(cfg.jwtSecret);
+  for (const p of ["/caption", "/pads", "/post", "/gazette-deadline"]) {
+    app.use(p, jwt);
   }
   app.route("/", captionRoutes(svc.caption));
   app.route("/", padsRoutes(svc.famileo));
   app.route("/", gazetteRoutes(svc.famileo));
   app.route("/", postRoutes(svc.famileo));
-  if (svc.sessions) {
-    app.route("/", adminRoutes(svc.sessions));
-  }
 
   if (cfg.webPublicDir) {
     const indexPath = join(cfg.webPublicDir, "index.html");

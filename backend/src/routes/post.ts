@@ -1,13 +1,15 @@
 import { Hono } from "hono";
 import type { FamileoClient } from "../famileo/FamileoClient.js";
 import type { PhotoUpload } from "../famileo/types.js";
+import type { AuthVars } from "../auth/jwt.js";
 
 const MAX_PHOTOS = 4;
 const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
 
 export function postRoutes(famileo: FamileoClient) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: AuthVars }>();
   app.post("/post", async (c) => {
+    const userId = c.get("userId");
     let form: FormData;
     try {
       form = await c.req.formData();
@@ -43,9 +45,9 @@ export function postRoutes(famileo: FamileoClient) {
       });
     }
 
-    await famileo.ensureSession();
+    await famileo.ensureSession(userId);
     try {
-      const result = await famileo.createPost({ padId, text, photos });
+      const result = await famileo.createPost(userId, { padId, text, photos });
       return c.json(result);
     } catch (e) {
       const msg = (e as Error).message;

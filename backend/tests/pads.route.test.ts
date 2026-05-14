@@ -2,9 +2,15 @@ import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { padsRoutes } from "../src/routes/pads.js";
 import { MockFamileoClient } from "../src/famileo/MockFamileoClient.js";
+import type { AuthVars } from "../src/auth/jwt.js";
 
 function makeApp() {
-  const app = new Hono();
+  const app = new Hono<{ Variables: AuthVars }>();
+  app.use("*", async (c, next) => {
+    c.set("userId", 1);
+    c.set("userEmail", "test@test");
+    await next();
+  });
   app.route("/", padsRoutes(new MockFamileoClient()));
   return app;
 }

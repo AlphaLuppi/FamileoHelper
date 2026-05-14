@@ -1,7 +1,11 @@
 export const colors = {
-  bg: "#ffffff",
-  ink: "#0a0a0a",
-  inkSoft: "#525252",
-  accent: "#1e88e5",
-  danger: "#d32f2f",
+  bg: "#fbf8f4",
+  surface: "#ffffff",
+  ink: "#1c1917",
+  inkSoft: "#57534e",
+  inkMuted: "#a8a29e",
+  border: "#e7e5e4",
+  brand: "#cf4321",
+  brandSoft: "#fdf4f0",
+  danger: "#b91c1c",
 };

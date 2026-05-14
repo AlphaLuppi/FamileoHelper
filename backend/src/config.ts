@@ -3,6 +3,7 @@ import { z } from "zod";
 const schema = z.object({
   PORT: z.coerce.number().int().positive().default(8787),
   BACKEND_BEARER_TOKEN: z.string().min(16, "must be at least 16 chars"),
+  JWT_SECRET: z.string().min(32, "must be at least 32 chars"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),
   DATA_DIR: z.string().default("./data"),
   SESSION_ENCRYPTION_KEY: z
@@ -21,6 +22,7 @@ const schema = z.object({
 export type Config = {
   port: number;
   bearerToken: string;
+  jwtSecret: string;
   logLevel: "trace" | "debug" | "info" | "warn" | "error";
   dataDir: string;
   sessionEncryptionKey: Buffer;
@@ -36,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
   return {
     port: parsed.PORT,
     bearerToken: parsed.BACKEND_BEARER_TOKEN,
+    jwtSecret: parsed.JWT_SECRET,
     logLevel: parsed.LOG_LEVEL,
     dataDir: parsed.DATA_DIR,
     sessionEncryptionKey: Buffer.from(parsed.SESSION_ENCRYPTION_KEY, "base64"),

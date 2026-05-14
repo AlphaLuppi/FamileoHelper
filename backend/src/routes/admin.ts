@@ -1,33 +1,29 @@
 import { Hono } from "hono";
-import type { SessionStore } from "../famileo/sessionStore.js";
+import { z } from "zod";
+import type { InviteCodesRepo } from "../auth/inviteCodesRepo.js";
 
-type Body = {
-  cookies?: string;
-  cookieHeader?: string;
-};
+const generateSchema = z
+  .object({
+    expiresInDays: z.number().int().min(1).max(365).optional(),
+  })
+  .optional();
 
-export function adminRoutes(sessions: SessionStore) {
+export function adminRoutes(invites: InviteCodesRepo) {
   const app = new Hono();
 
-  app.post("/admin/famileo-session", async (c) => {
-    let body: Body;
+  app.post("/admin/invite", async (c) => {
+    let body: unknown = {};
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: "invalid json" }, 400);
+      // empty body is ok
     }
-    const raw = (body.cookies ?? body.cookieHeader ?? "").trim();
-    if (!raw) return c.json({ error: "cookies required" }, 400);
-    if (!/PHPSESSID/i.test(raw)) {
-      return c.json({ error: "PHPSESSID missing in cookies" }, 400);
-    }
-    sessions.save({ cookies: raw });
-    return c.json({ ok: true });
-  });
-
-  app.get("/admin/famileo-session", (c) => {
-    const s = sessions.load();
-    return c.json({ present: !!s });
+    const parsed = generateSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid body" }, 400);
+    const days = parsed.data?.expiresInDays;
+    const expiresAt = days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : undefined;
+    const row = invites.generate(expiresAt);
+    return c.json({ code: row.code, expiresAt: row.expires_at });
   });
 
   return app;

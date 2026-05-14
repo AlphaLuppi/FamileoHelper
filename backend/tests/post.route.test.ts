@@ -2,14 +2,24 @@ import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { postRoutes } from "../src/routes/post.js";
 import { MockFamileoClient } from "../src/famileo/MockFamileoClient.js";
+import type { AuthVars } from "../src/auth/jwt.js";
 
 function makeApp() {
-  const app = new Hono();
+  const app = new Hono<{ Variables: AuthVars }>();
+  app.use("*", async (c, next) => {
+    c.set("userId", 1);
+    c.set("userEmail", "t@t");
+    await next();
+  });
   app.route("/", postRoutes(new MockFamileoClient()));
   return app;
 }
 
-function buildFormData(opts: { padId?: string; text?: string; photos: { name: string; data: Uint8Array }[] }) {
+function buildFormData(opts: {
+  padId?: string;
+  text?: string;
+  photos: { name: string; data: Uint8Array }[];
+}) {
   const fd = new FormData();
   if (opts.padId !== undefined) fd.append("padId", opts.padId);
   if (opts.text !== undefined) fd.append("text", opts.text);

@@ -20,21 +20,21 @@ export class MockFamileoClient implements FamileoClient {
     }
   }
 
-  async ensureSession(): Promise<void> {
+  async ensureSession(_userId: number): Promise<void> {
     // no-op
   }
 
-  async listPads(): Promise<Pad[]> {
+  async listPads(_userId: number): Promise<Pad[]> {
     return [...this.pads];
   }
 
-  async listGazettes(padId: string): Promise<Gazette[]> {
+  async listGazettes(_userId: number, padId: string): Promise<Gazette[]> {
     const g = this.gazettes.get(padId);
     if (!g) throw new Error(`unknown pad: ${padId}`);
     return [...g];
   }
 
-  async createPost(input: PostInput): Promise<PostResult> {
+  async createPost(_userId: number, input: PostInput): Promise<PostResult> {
     if (!this.pads.some((p) => p.id === input.padId)) {
       throw new Error(`unknown pad: ${input.padId}`);
     }

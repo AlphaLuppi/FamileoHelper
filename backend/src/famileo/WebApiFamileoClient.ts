@@ -51,17 +51,17 @@ type CreatePostResponse = {
 export class WebApiFamileoClient implements FamileoClient {
   constructor(private readonly sessions: SessionStore) {}
 
-  async ensureSession(): Promise<void> {
-    const s = this.sessions.load();
+  async ensureSession(userId: number): Promise<void> {
+    const s = this.sessions.load(userId);
     if (!s || !s.cookies.trim()) {
       throw new FamileoSessionError(
-        "no famileo session — POST /admin/famileo-session with cookies",
+        "no famileo session — POST /famileo/session with cookies",
       );
     }
   }
 
-  async listPads(): Promise<Pad[]> {
-    const rows = await this.fetchPads();
+  async listPads(userId: number): Promise<Pad[]> {
+    const rows = await this.fetchPads(userId);
     return rows.map((r) => ({
       id: String(r.pad_id),
       name:
@@ -71,10 +71,8 @@ export class WebApiFamileoClient implements FamileoClient {
     }));
   }
 
-  async listGazettes(padId: string): Promise<Gazette[]> {
-    // The web app's "next gazette deadline" comes from the pad payload itself,
-    // not from /api/gazettes/{id} (which lists past issues).
-    const rows = await this.fetchPads();
+  async listGazettes(userId: number, padId: string): Promise<Gazette[]> {
+    const rows = await this.fetchPads(userId);
     const row = rows.find((r) => String(r.pad_id) === padId);
     if (!row) throw new Error(`unknown pad: ${padId}`);
     const next = row.next_gazette_tz ?? row.next_gazette;
@@ -88,17 +86,14 @@ export class WebApiFamileoClient implements FamileoClient {
     ];
   }
 
-  async createPost(input: PostInput): Promise<PostResult> {
+  async createPost(userId: number, input: PostInput): Promise<PostResult> {
     if (input.photos.length === 0) throw new Error("at least one photo required");
 
-    // Best-known shape so far: one /api/families/{id}/posts call per photo,
-    // each preceded by its own presigned-URL request. The exact multi-photo
-    // payload (image[] vs N posts) is unconfirmed — one-post-per-photo is safe.
     let last: PostResult | null = null;
     for (const photo of input.photos) {
-      const presigned = await this.getPresignedUrl();
+      const presigned = await this.getPresignedUrl(userId);
       const key = await this.uploadPhotoToS3(presigned, photo);
-      last = await this.postFamily(input.padId, input.text, key);
+      last = await this.postFamily(userId, input.padId, input.text, key);
     }
     if (!last) throw new Error("post failed");
     return last;
@@ -106,26 +101,26 @@ export class WebApiFamileoClient implements FamileoClient {
 
   // ---- internals ----------------------------------------------------------
 
-  private cookieHeader(): string {
-    const s = this.sessions.load();
+  private cookieHeader(userId: number): string {
+    const s = this.sessions.load(userId);
     if (!s) throw new FamileoSessionError();
     return s.cookies;
   }
 
-  private commonHeaders(): Record<string, string> {
+  private commonHeaders(userId: number): Record<string, string> {
     return {
       accept: "application/json, text/plain, */*",
       "user-agent": USER_AGENT,
-      cookie: this.cookieHeader(),
+      cookie: this.cookieHeader(userId),
       referer: `${BASE}/web-family/`,
       origin: BASE,
     };
   }
 
-  private async fetchPads(): Promise<PadRow[]> {
+  private async fetchPads(userId: number): Promise<PadRow[]> {
     const res = await request(
       `${BASE}/api/user/pad?include_subscription_when_no_manager=true`,
-      { method: "GET", headers: this.commonHeaders() },
+      { method: "GET", headers: this.commonHeaders(userId) },
     );
     if (res.statusCode === 401 || res.statusCode === 403) {
       throw new FamileoSessionError(`famileo /api/user/pad ${res.statusCode}`);
@@ -138,10 +133,10 @@ export class WebApiFamileoClient implements FamileoClient {
     return json.pads ?? [];
   }
 
-  private async getPresignedUrl(): Promise<PresignedResponse> {
+  private async getPresignedUrl(userId: number): Promise<PresignedResponse> {
     const res = await request(`${BASE}/api/v1/presigned_urls`, {
       method: "POST",
-      headers: { ...this.commonHeaders(), "content-type": "application/json" },
+      headers: { ...this.commonHeaders(userId), "content-type": "application/json" },
       body: JSON.stringify({ type: "post.image" }),
     });
     if (res.statusCode === 401 || res.statusCode === 403) {
@@ -159,9 +154,6 @@ export class WebApiFamileoClient implements FamileoClient {
     photo: PhotoUpload,
   ): Promise<string> {
     const form = new FormData();
-    // Replicate web-family flow: set all "inputs" fields, then override
-    // Content-Type and X-Amz-Meta-Filename with the real photo metadata,
-    // then append the file last.
     for (const [k, v] of Object.entries(presigned.form.inputs)) {
       form.set(k, v);
     }
@@ -186,6 +178,7 @@ export class WebApiFamileoClient implements FamileoClient {
   }
 
   private async postFamily(
+    userId: number,
     padId: string,
     text: string,
     imageKey: string,
@@ -199,7 +192,7 @@ export class WebApiFamileoClient implements FamileoClient {
 
     const res = await request(
       `${BASE}/api/families/${encodeURIComponent(padId)}/posts?return_validation_errors=1`,
-      { method: "POST", headers: this.commonHeaders(), body: form },
+      { method: "POST", headers: this.commonHeaders(userId), body: form },
     );
     if (res.statusCode === 401 || res.statusCode === 403) {
       throw new FamileoSessionError(`posts ${res.statusCode}`);
