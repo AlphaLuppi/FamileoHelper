@@ -1,0 +1,27 @@
+# Dokploy configuration reference (actual config lives in Dokploy UI).
+name: familieohelper-backend
+build:
+  type: dockerfile
+  context: backend
+  dockerfile: Dockerfile
+runtime:
+  port: 8787
+  healthCheck:
+    path: /health
+    interval: 30s
+volumes:
+  - mountPath: /app/data
+    name: familieohelper-data
+env:
+  required:
+    - BACKEND_BEARER_TOKEN
+    - SESSION_ENCRYPTION_KEY
+    - CLAUDE_OAUTH_TOKEN
+    - FAMILEO_USERNAME
+    - FAMILEO_PASSWORD
+  optional:
+    - LOG_LEVEL
+    - USE_MOCK_FAMILEO
+domain:
+  hostname: familieohelper.<user-domain>
+  ssl: cloudflare
