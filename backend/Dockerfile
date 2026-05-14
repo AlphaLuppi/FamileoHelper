@@ -14,10 +14,6 @@ RUN npx tsc -p tsconfig.json
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update \
- && apt-get install -y --no-install-recommends git ripgrep ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && npm install -g @anthropic-ai/claude-code
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./

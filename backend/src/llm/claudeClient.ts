@@ -1,56 +1,47 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 
 export type ClaudeOptions = {
   oauthToken: string;
+  model?: string;
 };
 
 export interface ClaudeClient {
   prompt(text: string): Promise<string>;
 }
 
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+
 export class ClaudeAgentSdkClient implements ClaudeClient {
-  constructor(private opts: ClaudeOptions) {}
+  private client: Anthropic;
+  private model: string;
+
+  constructor(opts: ClaudeOptions) {
+    this.client = new Anthropic({
+      authToken: opts.oauthToken,
+      defaultHeaders: {
+        "anthropic-beta": "oauth-2025-04-20",
+      },
+    });
+    this.model = opts.model ?? DEFAULT_MODEL;
+  }
 
   async prompt(text: string): Promise<string> {
-    let output = "";
-    let sawAssistant = false;
-    let lastError: unknown = null;
-
     try {
-      const stream = query({
-        prompt: text,
-        options: {
-          env: {
-            CLAUDE_CODE_OAUTH_TOKEN: this.opts.oauthToken,
-          },
-          model: "claude-haiku-4-5-20251001",
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-        },
+      const res = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 400,
+        messages: [{ role: "user", content: text }],
       });
-      for await (const msg of stream) {
-        if (msg.type === "assistant") {
-          sawAssistant = true;
-          for (const block of msg.message.content) {
-            if (block.type === "text") output += block.text;
-          }
-        } else if (msg.type === "system" || msg.type === "result") {
-          console.log("[claude] stream msg type=", msg.type, JSON.stringify(msg).slice(0, 400));
-        }
+      let output = "";
+      for (const block of res.content) {
+        if (block.type === "text") output += block.text;
       }
+      return output.trim();
     } catch (e) {
-      lastError = e;
-      console.error("[claude] query threw:", (e as Error)?.message ?? e);
-      if ((e as Error)?.stack) console.error((e as Error).stack);
+      const err = e as { message?: string; status?: number; error?: unknown };
+      console.error("[claude] API call failed:", err.status, err.message);
+      if (err.error) console.error("[claude] error body:", JSON.stringify(err.error).slice(0, 500));
+      throw e;
     }
-
-    if (!sawAssistant) {
-      console.warn(
-        "[claude] no assistant message received. error=",
-        lastError ? String(lastError) : "(none)",
-      );
-    }
-
-    return output.trim();
   }
 }
