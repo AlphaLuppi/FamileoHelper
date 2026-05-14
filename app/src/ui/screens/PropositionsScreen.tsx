@@ -1,0 +1,109 @@
+import { useEffect, useState, useCallback } from "react";
+import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Alert } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { useAppStore } from "../../state/store";
+import { ensurePermissions, listPhotosSince } from "../../services/photos/MediaLibraryService";
+import { reverseGeocode } from "../../services/geo/GeocodingService";
+import { buildProposals } from "../../domain/proposal";
+import { getLastPostAt } from "../../state/appStateRepo";
+import { getDecision } from "../../state/momentDecisionsRepo";
+import { BackendClient } from "../../services/backend/BackendClient";
+import { ProposalCard } from "../components/ProposalCard";
+import type { PostProposal } from "../../domain/types";
+
+const DEFAULT_LOOKBACK_DAYS = 30;
+
+export function PropositionsScreen() {
+  const { bearer, backendUrl, proposals, setProposals } = useAppStore();
+  const [loading, setLoading] = useState(false);
+  const nav = useNavigation<any>();
+
+  const refresh = useCallback(async () => {
+    if (!bearer || !backendUrl) return;
+    setLoading(true);
+    try {
+      const ok = await ensurePermissions();
+      if (!ok) {
+        Alert.alert("Permissions", "Accès aux photos refusé.");
+        return;
+      }
+      const fallback = new Date(Date.now() - DEFAULT_LOOKBACK_DAYS * 24 * 3600 * 1000).toISOString();
+      const since = await getLastPostAt(fallback);
+      const photos = await listPhotosSince(since);
+      const drafts = buildProposals(photos);
+
+      const fresh: PostProposal[] = [];
+      for (const d of drafts) {
+        if (await getDecision(d.momentHash)) continue;
+        // resolve city
+        const first = d.photos[0];
+        if (first?.location) {
+          d.city = await reverseGeocode(first.location);
+        }
+        fresh.push(d);
+      }
+
+      // generate captions in parallel (cap 4)
+      const backend = new BackendClient({ baseUrl: backendUrl, bearer });
+      await Promise.all(
+        fresh.slice(0, 8).map(async (p) => {
+          try {
+            p.draftText = await backend.generateCaption({
+              date: p.date,
+              city: p.city,
+              photoCount: p.photos.length,
+              weekday: p.weekday,
+            });
+          } catch {
+            p.draftText = `Petit moment partagé ${p.weekday}${p.city ? ` à ${p.city}` : ""}.`;
+          }
+        }),
+      );
+
+      setProposals(fresh);
+    } finally {
+      setLoading(false);
+    }
+  }, [bearer, backendUrl, setProposals]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (loading && proposals.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center bg-neutral-50">
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (proposals.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center bg-neutral-50 p-6">
+        <Text className="text-base text-neutral-700">Rien de neuf depuis ton dernier post 👌</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      className="flex-1 bg-neutral-50"
+      contentContainerClassName="p-4 gap-4"
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
+    >
+      {proposals.map((p) => (
+        <ProposalCard
+          key={p.momentHash}
+          proposal={p}
+          onReject={async () => {
+            const { setDecision } = await import("../../state/momentDecisionsRepo");
+            await setDecision(p.momentHash, "rejected");
+            setProposals(proposals.filter((x) => x.momentHash !== p.momentHash));
+          }}
+          onContinue={() => nav.navigate("PostFlow", { proposal: p })}
+        />
+      ))}
+    </ScrollView>
+  );
+}
