@@ -1,7 +1,12 @@
 # FamileoHelper Backend Runbook
 
+## Live URL
+- Production: `https://famileohelper.toam.tech` (Let's Encrypt, auto-renewed by Traefik)
+- VPS: `187.124.217.58` (Dokploy at `http://187.124.217.58:3000`)
+- Dokploy project: `familieohelper` / app: `familieohelper-backend`
+
 ## Deploy
-Dokploy auto-deploys on push to `main` (once configured in Dokploy UI).
+Dokploy auto-deploys on push to `main` of `AlphaLuppi/FamileoHelper` (build context: `backend/`).
 
 ## Env vars (all secrets)
 - `BACKEND_BEARER_TOKEN` — the mobile app authenticates with `Authorization: Bearer <this>`. Generate: `openssl rand -hex 32`.

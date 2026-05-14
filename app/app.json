@@ -32,7 +32,7 @@
       "expo-speech-recognition"
     ],
     "extra": {
-      "backendUrl": "http://localhost:8787",
+      "backendUrl": "https://famileohelper.toam.tech",
       "backendTokenStorageKey": "familieohelper.backendToken"
     }
   }
