@@ -11,7 +11,7 @@ import type { SessionStore } from "./sessionStore.js";
 
 const BASE = "https://www.famileo.com";
 const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0 Safari/537.36";
 
 export class FamileoSessionError extends Error {
   constructor(msg = "famileo session missing or expired") {
@@ -20,28 +20,33 @@ export class FamileoSessionError extends Error {
   }
 }
 
-type RawPad = {
-  family_id?: number | string;
-  id?: number | string;
-  name?: string;
-  family_name?: string;
+type PadRow = {
+  pad_id: number;
+  pad_name?: string;
+  pad_firstname?: string;
+  pad_lastname?: string;
+  next_gazette_tz?: string;
+  next_gazette?: string;
 };
 
-type RawGazette = {
-  id: number | string;
-  closing_date?: string;
-  close_date?: string;
-  closing_at?: string;
-  closesAt?: string;
-  publication_date?: string;
-  published_at?: string;
+type PresignedResponse = {
+  type: string;
+  url: string;
+  form: {
+    attributes: { action: string; method: string; enctype: string };
+    inputs: Record<string, string>;
+  };
 };
 
-type PresignedResponse =
-  | { url: string; key: string; fields?: Record<string, string> }
-  | { urls: Array<{ url: string; key: string }> }
-  | { presigned_urls: Array<{ url: string; key: string }> }
-  | Record<string, unknown>;
+type CreatePostResponse = {
+  code: number;
+  familyPost?: {
+    wall_post_id: number;
+    date_tz?: string;
+    date?: string;
+  };
+  errorPosts?: unknown[];
+};
 
 export class WebApiFamileoClient implements FamileoClient {
   constructor(private readonly sessions: SessionStore) {}
@@ -56,31 +61,47 @@ export class WebApiFamileoClient implements FamileoClient {
   }
 
   async listPads(): Promise<Pad[]> {
-    const data = await this.apiGet<unknown>("/api/user/pad");
-    const rows = extractArray(data);
-    return rows.map((r) => normalizePad(r as RawPad)).filter(Boolean) as Pad[];
+    const rows = await this.fetchPads();
+    return rows.map((r) => ({
+      id: String(r.pad_id),
+      name:
+        r.pad_name?.trim() ||
+        [r.pad_firstname, r.pad_lastname].filter(Boolean).join(" ").trim() ||
+        `Pad ${r.pad_id}`,
+    }));
   }
 
   async listGazettes(padId: string): Promise<Gazette[]> {
-    const data = await this.apiGet<unknown>(`/api/gazettes/${encodeURIComponent(padId)}`);
-    const rows = extractArray(data);
-    return rows
-      .map((r) => normalizeGazette(r as RawGazette, padId))
-      .filter(Boolean) as Gazette[];
+    // The web app's "next gazette deadline" comes from the pad payload itself,
+    // not from /api/gazettes/{id} (which lists past issues).
+    const rows = await this.fetchPads();
+    const row = rows.find((r) => String(r.pad_id) === padId);
+    if (!row) throw new Error(`unknown pad: ${padId}`);
+    const next = row.next_gazette_tz ?? row.next_gazette;
+    if (!next) return [];
+    return [
+      {
+        id: `next_${padId}`,
+        padId,
+        closesAt: new Date(next).toISOString(),
+      },
+    ];
   }
 
   async createPost(input: PostInput): Promise<PostResult> {
     if (input.photos.length === 0) throw new Error("at least one photo required");
 
-    let lastResult: PostResult | null = null;
+    // Best-known shape so far: one /api/families/{id}/posts call per photo,
+    // each preceded by its own presigned-URL request. The exact multi-photo
+    // payload (image[] vs N posts) is unconfirmed — one-post-per-photo is safe.
+    let last: PostResult | null = null;
     for (const photo of input.photos) {
-      const { url, key } = await this.getPresignedUrl(input.padId);
-      await this.uploadPhoto(url, photo);
-      const created = await this.postFamily(input.padId, input.text, key);
-      lastResult = created;
+      const presigned = await this.getPresignedUrl();
+      const key = await this.uploadPhotoToS3(presigned, photo);
+      last = await this.postFamily(input.padId, input.text, key);
     }
-    if (!lastResult) throw new Error("post failed");
-    return lastResult;
+    if (!last) throw new Error("post failed");
+    return last;
   }
 
   // ---- internals ----------------------------------------------------------
@@ -91,48 +112,77 @@ export class WebApiFamileoClient implements FamileoClient {
     return s.cookies;
   }
 
-  private async apiGet<T>(path: string): Promise<T> {
-    const res = await request(`${BASE}${path}`, {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        "user-agent": USER_AGENT,
-        cookie: this.cookieHeader(),
-        referer: `${BASE}/`,
-      },
-    });
+  private commonHeaders(): Record<string, string> {
+    return {
+      accept: "application/json, text/plain, */*",
+      "user-agent": USER_AGENT,
+      cookie: this.cookieHeader(),
+      referer: `${BASE}/web-family/`,
+      origin: BASE,
+    };
+  }
+
+  private async fetchPads(): Promise<PadRow[]> {
+    const res = await request(
+      `${BASE}/api/user/pad?include_subscription_when_no_manager=true`,
+      { method: "GET", headers: this.commonHeaders() },
+    );
     if (res.statusCode === 401 || res.statusCode === 403) {
-      throw new FamileoSessionError(`famileo ${path} ${res.statusCode}`);
+      throw new FamileoSessionError(`famileo /api/user/pad ${res.statusCode}`);
     }
     if (res.statusCode >= 400) {
       const body = await res.body.text();
-      throw new Error(`famileo ${path} ${res.statusCode}: ${body.slice(0, 200)}`);
+      throw new Error(`famileo /api/user/pad ${res.statusCode}: ${body.slice(0, 200)}`);
     }
-    return (await res.body.json()) as T;
+    const json = (await res.body.json()) as { code: number; pads?: PadRow[] };
+    return json.pads ?? [];
   }
 
-  private async getPresignedUrl(
-    padId: string,
-  ): Promise<{ url: string; key: string }> {
-    const data = await this.apiGet<PresignedResponse>(
-      `/api/families/${encodeURIComponent(padId)}/presigned_urls`,
+  private async getPresignedUrl(): Promise<PresignedResponse> {
+    const res = await request(`${BASE}/api/v1/presigned_urls`, {
+      method: "POST",
+      headers: { ...this.commonHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ type: "post.image" }),
+    });
+    if (res.statusCode === 401 || res.statusCode === 403) {
+      throw new FamileoSessionError(`presigned_urls ${res.statusCode}`);
+    }
+    if (res.statusCode >= 400) {
+      const body = await res.body.text();
+      throw new Error(`presigned_urls ${res.statusCode}: ${body.slice(0, 300)}`);
+    }
+    return (await res.body.json()) as PresignedResponse;
+  }
+
+  private async uploadPhotoToS3(
+    presigned: PresignedResponse,
+    photo: PhotoUpload,
+  ): Promise<string> {
+    const form = new FormData();
+    // Replicate web-family flow: set all "inputs" fields, then override
+    // Content-Type and X-Amz-Meta-Filename with the real photo metadata,
+    // then append the file last.
+    for (const [k, v] of Object.entries(presigned.form.inputs)) {
+      form.set(k, v);
+    }
+    form.set("Content-Type", photo.contentType || "image/jpeg");
+    form.set("X-Amz-Meta-Filename", photo.filename || "photo.jpg");
+    form.set(
+      "file",
+      new Blob([photo.bytes], { type: photo.contentType || "image/jpeg" }),
+      photo.filename || "photo.jpg",
     );
-    return normalizePresigned(data);
-  }
 
-  private async uploadPhoto(url: string, photo: PhotoUpload): Promise<void> {
-    const res = await request(url, {
-      method: "PUT",
-      headers: {
-        "content-type": photo.contentType || "image/jpeg",
-      },
-      body: photo.bytes,
+    const res = await request(presigned.form.attributes.action, {
+      method: "POST",
+      body: form,
     });
     if (res.statusCode >= 300) {
       const body = await res.body.text();
-      throw new Error(`S3 PUT ${res.statusCode}: ${body.slice(0, 200)}`);
+      throw new Error(`S3 upload ${res.statusCode}: ${body.slice(0, 200)}`);
     }
     await res.body.dump();
+    return presigned.form.inputs.key!;
   }
 
   private async postFamily(
@@ -149,84 +199,24 @@ export class WebApiFamileoClient implements FamileoClient {
 
     const res = await request(
       `${BASE}/api/families/${encodeURIComponent(padId)}/posts?return_validation_errors=1`,
-      {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "user-agent": USER_AGENT,
-          cookie: this.cookieHeader(),
-          referer: `${BASE}/`,
-        },
-        body: form,
-      },
+      { method: "POST", headers: this.commonHeaders(), body: form },
     );
     if (res.statusCode === 401 || res.statusCode === 403) {
-      throw new FamileoSessionError(`famileo post ${res.statusCode}`);
+      throw new FamileoSessionError(`posts ${res.statusCode}`);
     }
     if (res.statusCode >= 400) {
       const body = await res.body.text();
-      throw new Error(`famileo post ${res.statusCode}: ${body.slice(0, 300)}`);
+      throw new Error(`posts ${res.statusCode}: ${body.slice(0, 400)}`);
     }
-    const json = (await res.body.json()) as {
-      familyPost?: { wall_post_id?: number | string; date_tz?: string; date?: string };
-    };
-    const post = json.familyPost;
-    if (!post?.wall_post_id) {
-      throw new Error("famileo post: missing wall_post_id");
+    const json = (await res.body.json()) as CreatePostResponse;
+    const fp = json.familyPost;
+    if (!fp?.wall_post_id) {
+      throw new Error(`posts: missing wall_post_id (response code=${json.code})`);
     }
     return {
-      postId: String(post.wall_post_id),
+      postId: String(fp.wall_post_id),
       padId,
-      postedAt: post.date_tz || post.date || new Date().toISOString(),
+      postedAt: fp.date_tz || fp.date || new Date().toISOString(),
     };
   }
-}
-
-// ---- helpers --------------------------------------------------------------
-
-function extractArray(v: unknown): unknown[] {
-  if (Array.isArray(v)) return v;
-  if (v && typeof v === "object") {
-    for (const k of ["data", "pads", "families", "gazettes", "items"]) {
-      const inner = (v as Record<string, unknown>)[k];
-      if (Array.isArray(inner)) return inner;
-    }
-  }
-  return [];
-}
-
-function normalizePad(r: RawPad): Pad | null {
-  const id = r.family_id ?? r.id;
-  if (id === undefined || id === null) return null;
-  const name = r.family_name ?? r.name ?? `Pad ${id}`;
-  return { id: String(id), name };
-}
-
-function normalizeGazette(r: RawGazette, padId: string): Gazette | null {
-  if (r.id === undefined) return null;
-  const closesAt =
-    r.closing_date ?? r.close_date ?? r.closing_at ?? r.closesAt ?? "";
-  if (!closesAt) return null;
-  return {
-    id: String(r.id),
-    padId,
-    closesAt: new Date(closesAt).toISOString(),
-    publishedAt: r.publication_date ?? r.published_at,
-  };
-}
-
-function normalizePresigned(data: PresignedResponse): { url: string; key: string } {
-  if (typeof data === "object" && data !== null) {
-    const d = data as Record<string, unknown>;
-    if (typeof d.url === "string" && typeof d.key === "string") {
-      return { url: d.url, key: d.key };
-    }
-    const arr = (d.urls ?? d.presigned_urls) as
-      | Array<{ url: string; key: string }>
-      | undefined;
-    if (Array.isArray(arr) && arr[0]?.url && arr[0]?.key) {
-      return { url: arr[0].url, key: arr[0].key };
-    }
-  }
-  throw new Error(`unexpected presigned response: ${JSON.stringify(data).slice(0, 200)}`);
 }
