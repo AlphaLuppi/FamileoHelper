@@ -1,4 +1,6 @@
 node_modules/
+# Exception : assets statiques embarqués dans le bundle web Expo
+!backend/public/**/node_modules/
 .DS_Store
 .claude/
 .env

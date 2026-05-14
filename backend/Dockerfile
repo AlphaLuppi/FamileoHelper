@@ -17,8 +17,10 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+COPY public ./public
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 ENV DATA_DIR=/app/data
+ENV WEB_PUBLIC_DIR=/app/public
 EXPOSE 8787
 CMD ["node", "dist/server.js"]
