@@ -6,6 +6,7 @@ import { createLogger } from "./logger.js";
 import { healthRoutes } from "./routes/health.js";
 import { captionRoutes } from "./routes/caption.js";
 import { padsRoutes } from "./routes/pads.js";
+import { gazetteRoutes } from "./routes/gazette.js";
 import { bearerAuth } from "./auth/bearerAuth.js";
 import { CaptionService } from "./llm/CaptionService.js";
 import { ClaudeAgentSdkClient, type ClaudeClient } from "./llm/claudeClient.js";
@@ -41,6 +42,7 @@ export function buildApp(cfg: Config, services?: Services) {
   protectedApp.use("*", bearerAuth(cfg.bearerToken));
   protectedApp.route("/", captionRoutes(svc.caption));
   protectedApp.route("/", padsRoutes(svc.famileo));
+  protectedApp.route("/", gazetteRoutes(svc.famileo));
   app.route("/", protectedApp);
 
   return app;
