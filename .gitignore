@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+.claude/
+.env
+.env.local
+*.log
+app/dist/
+app/.expo/
+backend/dist/
+backend/data/

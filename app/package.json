@@ -11,9 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~6.1.2",
     "@react-navigation/bottom-tabs": "^7.16.1",
     "@react-navigation/native": "^7.2.4",
     "@react-navigation/native-stack": "^7.15.1",
+    "babel-preset-expo": "^55.0.21",
     "date-fns": "^4.1.0",
     "expo": "~54.0.33",
     "expo-file-system": "~19.0.22",
@@ -26,11 +28,13 @@
     "expo-status-bar": "~3.0.9",
     "nativewind": "^4.2.3",
     "react": "19.1.0",
+    "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-reanimated": "^4.3.1",
     "react-native-safe-area-context": "^5.7.0",
     "react-native-screens": "~4.16.0",
+    "react-native-web": "^0.21.0",
     "tailwindcss": "^3.4.19",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"

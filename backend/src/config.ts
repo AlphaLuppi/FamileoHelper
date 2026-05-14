@@ -15,6 +15,7 @@ const schema = z.object({
     .union([z.literal("true"), z.literal("false")])
     .default("true")
     .transform((v) => v === "true"),
+  WEB_PUBLIC_DIR: z.string().default("./public"),
 });
 
 export type Config = {
@@ -27,6 +28,7 @@ export type Config = {
   famileoPassword?: string;
   claudeOauthToken?: string;
   useMockFamileo: boolean;
+  webPublicDir?: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): Config {
@@ -41,5 +43,6 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     famileoPassword: parsed.FAMILEO_PASSWORD,
     claudeOauthToken: parsed.CLAUDE_OAUTH_TOKEN,
     useMockFamileo: parsed.USE_MOCK_FAMILEO,
+    webPublicDir: parsed.WEB_PUBLIC_DIR,
   };
 }

@@ -9,6 +9,8 @@ export type PhotoRef = {
   uri: string;
   filename: string;
   mimeType: string;
+  // Sur web on attache le Blob/File directement ; sur RN on garde {uri,name,type}.
+  blob?: Blob;
 };
 
 export type CreatePostInput = {
@@ -94,9 +96,13 @@ export class BackendClient {
     fd.append("padId", input.padId);
     fd.append("text", input.text);
     for (const p of input.photos) {
-      // React Native FormData accepts { uri, name, type }; in Node tests we append a Blob equivalent
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fd.append("photos", { uri: p.uri, name: p.filename, type: p.mimeType } as any);
+      if (p.blob) {
+        fd.append("photos", p.blob, p.filename);
+      } else {
+        // React Native FormData accepts { uri, name, type }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fd.append("photos", { uri: p.uri, name: p.filename, type: p.mimeType } as any);
+      }
     }
     return this.request<CreatePostResult>("/post", {
       method: "POST",

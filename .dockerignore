@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.expo
+**/.expo-shared
+**/coverage
+**/.DS_Store
+**/data
+**/*.log
+.git
+.github
+docs

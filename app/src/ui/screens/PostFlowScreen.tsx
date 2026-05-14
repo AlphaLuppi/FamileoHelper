@@ -10,6 +10,7 @@ import { setDecision } from "../../state/momentDecisionsRepo";
 import { upsertPads, listCachedPads, markPadUsed, getDefaultPadId } from "../../state/padsCacheRepo";
 import { setLastPostAt } from "../../state/appStateRepo";
 import { transcribeOnce } from "../../services/speech/SpeechService";
+import { photoToPhotoRef } from "../../services/photos/photoRef";
 import type { PostProposal, Pad } from "../../domain/types";
 
 export function PostFlowScreen() {
@@ -57,11 +58,7 @@ export function PostFlowScreen() {
       await backend.createPost({
         padId,
         text,
-        photos: proposal.photos.map((p, i) => ({
-          uri: p.uri,
-          filename: `photo_${i}.jpg`,
-          mimeType: "image/jpeg",
-        })),
+        photos: proposal.photos.map((p, i) => photoToPhotoRef(p, i)),
       });
       await setDecision(proposal.momentHash, "posted");
       await markPadUsed(padId);

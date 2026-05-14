@@ -1,5 +1,8 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { Config } from "./config.js";
 import { loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
@@ -50,16 +53,29 @@ export function buildApp(cfg: Config, services?: Services) {
   const app = new Hono();
   app.route("/", healthRoutes());
 
-  const protectedApp = new Hono();
-  protectedApp.use("*", bearerAuth(cfg.bearerToken));
-  protectedApp.route("/", captionRoutes(svc.caption));
-  protectedApp.route("/", padsRoutes(svc.famileo));
-  protectedApp.route("/", gazetteRoutes(svc.famileo));
-  protectedApp.route("/", postRoutes(svc.famileo));
-  if (svc.sessions) {
-    protectedApp.route("/", adminRoutes(svc.sessions));
+  if (cfg.webPublicDir && existsSync(cfg.webPublicDir)) {
+    app.use("*", serveStatic({ root: cfg.webPublicDir }));
   }
-  app.route("/", protectedApp);
+
+  // Auth bearer appliquée uniquement aux préfixes API (pas au SPA).
+  const auth = bearerAuth(cfg.bearerToken);
+  for (const p of ["/caption", "/pads", "/post", "/gazette-deadline", "/admin/*"]) {
+    app.use(p, auth);
+  }
+  app.route("/", captionRoutes(svc.caption));
+  app.route("/", padsRoutes(svc.famileo));
+  app.route("/", gazetteRoutes(svc.famileo));
+  app.route("/", postRoutes(svc.famileo));
+  if (svc.sessions) {
+    app.route("/", adminRoutes(svc.sessions));
+  }
+
+  if (cfg.webPublicDir) {
+    const indexPath = join(cfg.webPublicDir, "index.html");
+    if (existsSync(indexPath)) {
+      app.get("*", serveStatic({ path: indexPath }));
+    }
+  }
 
   return app;
 }

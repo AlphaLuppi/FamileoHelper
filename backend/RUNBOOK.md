@@ -6,7 +6,24 @@
 - Dokploy project: `familieohelper` / app: `familieohelper-backend`
 
 ## Deploy
-Dokploy auto-deploys on push to `main` of `AlphaLuppi/FamileoHelper` (build context: `backend/`).
+Dokploy auto-deploys on push to `main` of `AlphaLuppi/FamileoHelper`.
+
+**Build context** : la **racine du repo** (PAS `backend/`). Dockerfile : `./Dockerfile` (à la racine).
+Le Dockerfile racine builde en multi-stage le bundle web Expo (`app/`) puis le backend, et copie le bundle dans `/app/public` (servi via `WEB_PUBLIC_DIR`).
+
+Pour mettre à jour Dokploy après le passage à la web app :
+- Settings de l'application → Build → "Build Path" : `./` (racine)
+- Dockerfile path : `Dockerfile`
+- Ajouter env var : `WEB_PUBLIC_DIR=/app/public` (déjà set par défaut dans le Dockerfile)
+- Redéployer.
+
+## Web app
+Servie depuis le même backend. Routes :
+- `/`, `/onboarding`, n'importe quelle route non-API → `index.html` (SPA fallback)
+- `/_expo/...`, `/assets/...`, `/favicon.ico` → assets statiques
+- API : voir tableau ci-dessous (toujours protégé par bearer)
+
+Onboarding : le user entre l'URL backend (`https://famileohelper.toam.tech`) et le `BACKEND_BEARER_TOKEN` (le même que celui du mobile) ; stocké dans `localStorage`. Sur iPhone/Mac, le bouton "Choisir des photos" ouvre le picker système qui inclut iCloud Photos.
 
 ## Env vars (all secrets)
 - `BACKEND_BEARER_TOKEN` — the mobile app authenticates with `Authorization: Bearer <this>`. Generate: `openssl rand -hex 32`.
