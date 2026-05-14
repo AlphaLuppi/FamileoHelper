@@ -12,8 +12,8 @@ Dokploy auto-deploys on push to `main` of `AlphaLuppi/FamileoHelper` (build cont
 - `BACKEND_BEARER_TOKEN` — the mobile app authenticates with `Authorization: Bearer <this>`. Generate: `openssl rand -hex 32`.
 - `SESSION_ENCRYPTION_KEY` — 32 bytes base64. Encrypts the Famileo cookie session at rest. Generate: `openssl rand -base64 32`.
 - `CLAUDE_OAUTH_TOKEN` — Claude Max OAuth token. Regenerate with `claude setup-token`.
-- `FAMILEO_USERNAME`, `FAMILEO_PASSWORD` — Famileo credentials (only used when `USE_MOCK_FAMILEO=false`).
-- `USE_MOCK_FAMILEO` — `true` while WebApiFamileoClient is not yet implemented.
+- `FAMILEO_USERNAME`, `FAMILEO_PASSWORD` — unused (web login blocked by reCAPTCHA Enterprise — see "Famileo session" below).
+- `USE_MOCK_FAMILEO` — `false` in prod ; `true` only for local tests.
 
 Optional:
 - `LOG_LEVEL` — `trace|debug|info|warn|error` (default `info`).
@@ -29,6 +29,25 @@ Optional:
 | GET    | `/gazette-deadline`        | bearer | `?padId=…`                                                                   |
 | POST   | `/caption`                 | bearer | JSON `{date, city?, photoCount, weekday}` ; query `?mode=reformulate` with `{transcribed}` |
 | POST   | `/post`                    | bearer | multipart `padId`, `text`, `photos[]` (1-4 files, ≤15 MB each)               |
+| GET    | `/admin/famileo-session`   | bearer | — (returns `{present}`)                                                      |
+| POST   | `/admin/famileo-session`   | bearer | JSON `{cookies: "PHPSESSID=…; REMEMBERME=…"}`                                |
+
+## Famileo session
+
+Web login (`/login_check`) is gated by **Google reCAPTCHA Enterprise**, so the backend can't auto-login. The session cookie must be injected manually:
+
+1. Open `https://www.famileo.com/connexion` in Chrome, log in.
+2. DevTools → Application → Cookies → `www.famileo.com`. Copy the values of `PHPSESSID` and `REMEMBERME` (and anything else marked HttpOnly).
+3. POST them to the backend:
+   ```bash
+   curl -X POST -H "Authorization: Bearer $BACKEND_BEARER_TOKEN" \
+     -H "Content-Type: application/json" \
+     https://famileohelper.toam.tech/admin/famileo-session \
+     -d '{"cookies":"PHPSESSID=…; REMEMBERME=…"}'
+   ```
+4. The backend encrypts the cookie blob with `SESSION_ENCRYPTION_KEY` and writes it to `/app/data/backend.db`.
+
+When Famileo invalidates the session (typically after weeks of inactivity, or password change), `/pads` and `/post` return 5xx with `FamileoSessionError` — repeat the steps above.
 
 ## Volumes
 - `/app/data/backend.db` — SQLite, holds the Famileo session cookie (encrypted).
